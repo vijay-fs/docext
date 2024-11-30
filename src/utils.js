@@ -1,3 +1,4 @@
+import env from "react-dotenv";
 export function debounce(func, timeout = 300) {
   let timer;
   return (...args) => {
@@ -8,7 +9,7 @@ export function debounce(func, timeout = 300) {
   };
 }
 
-const URL = "https://api.adeos.coffeeinc.in";
+const URL = env.REACT_APP_BACKEND_URL || "http://localhost:8000";
 
 export const ENDPOINTS = {
   CATEGORIZE: `${URL}/categorize`,
