@@ -8,7 +8,7 @@ export function debounce(func, timeout = 300) {
   };
 }
 
-const URL = process.env.REACT_APP_BACKEND_URL || '';
+const URL = "https://api.adeos.coffeeinc.in";
 
 export const ENDPOINTS = {
   CATEGORIZE: `${URL}/categorize`,
