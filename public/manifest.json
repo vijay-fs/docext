@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Doc Extractor",
+  "name": "Doc Extractor used to extract text from documents",
   "icons": [
     {
       "src": "favicon.ico",
