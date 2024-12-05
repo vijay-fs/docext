@@ -1,0 +1,15 @@
+pdfplumber
+html2excel
+pandas
+anthropic
+ultralyticsplus
+Pillow
+fastapi
+pydantic
+openpyxl
+python-dotenv
+uvicorn
+gspread
+python-multipart
+onnxruntime
+pymongo
