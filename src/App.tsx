@@ -3,6 +3,11 @@ import axios from 'axios';
 import Annotator from './components/Annotator';
 import './App.css';
 import { ENDPOINTS } from './utils';
+import { useJobs } from './hooks/useJobs';
+import { LinearProgress, Typography } from '@mui/material';
+import { LoadingButton } from '@mui/lab';
+import { ArrowBack, DocumentScanner } from '@mui/icons-material';
+import { Link } from 'react-router';
 const App = () => {
   // State hooks
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -14,7 +19,8 @@ const App = () => {
   const [loading, setLoading] = useState(false);
   const [extractLoading, setExtractLoading] = useState(false);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
-
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const { addJob, jobs } = useJobs();
   // File input handler
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -129,6 +135,57 @@ const App = () => {
       console.error("Error:", error);
     }
   };
+  const onExtract = () => {
+    setLoading(true);
+    if (!selectedFile) {
+      alert("Please select a PDF file first.");
+      setLoading(false);
+      return;
+    }
+    const formData = new FormData();
+
+    formData.append('pdf_file', selectedFile);
+    formData.append(
+      'data',
+      JSON.stringify(
+        transformedData.data.filter((item: any) => selectedPagesForExtract.has(item.page_num))
+      ))
+    axios
+      .post(ENDPOINTS.EXTRACT,
+        formData)
+      .then((response) => {
+        const serverJobId = response.data.claude_job_id;
+        const expTime = response.data.time_est; // in seconds
+        console.log(response.data, "serverJobId");
+        if (serverJobId) {
+          setCurrentJobId(serverJobId);
+
+          addJob({
+            jobId: serverJobId,
+            fileName: selectedFile.name,
+            status: 'in_progress',
+            expTime, // Include expTime
+            startTime: Date.now(), // Record the start time
+            progress: 0,
+            fileUrlToDownload: null,
+          });
+          setLoading(false);
+
+        }
+        setLoading(false);
+
+        // Polling will be handled centrally
+      })
+      .catch(() => {
+        setLoading(false);
+        setCurrentJobId(null);
+
+        // setError({
+        //   status: 500,
+        //   message: "An error occurred during extraction.",
+        // });
+      });
+  };
 
   // Checkbox toggle
   const togglePageSelection = (pageNum: number) => {
@@ -227,14 +284,30 @@ const App = () => {
     dpiApi(pageNum, value);
   };
 
-
+  console.log(jobs, "jobs")
   // Render the component
+  const currentJobIdStatus = useMemo(() => {
+    if (currentJobId && jobs && jobs.length > 0) {
+      return jobs.find((job: any) => job.jobId === currentJobId);
+    }
+    return null;
+  }, [currentJobId, jobs]);
   return (
-    <div className="App bg-gray-100 min-h-screen flex flex-col">
+    <div className="App bg-gray-100 min-h-screen flex flex-col relative">
+      <Link to="/">
+        <LoadingButton
+          variant="contained"
+          startIcon={<ArrowBack />}
+          size="large"
+          color='primary'
+          sx={{ mt: "30px", position: 'absolute', top: 0, right: "30px" }}
+        >
+          <Typography variant="button">Go back</Typography>
+        </LoadingButton>
+      </Link>
       {/* Header */}
-      <h1 className="text-4xl font-extrabold text-center text-blue-600 my-8">
-        Doc Extractor
-      </h1>
+      <Typography variant="h3" color='primary' sx={{ my: "30px", fontWeight: "bold" }}>Doc Extractor</Typography>
+
       {/* Main Content */}
       {loading ? (<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
         {/* Spinner */}
@@ -257,12 +330,16 @@ const App = () => {
               className="border border-gray-300 rounded-md p-2 bg-white shadow-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500"
             />
 
-            <button
+            <LoadingButton
+              variant="contained"
+              startIcon={<DocumentScanner />}
+              size="large"
               onClick={categorize}
-              className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-blue-700 transition duration-300"
+              color='primary'
+              sx={{ mt: "30px" }}
             >
-              Upload and Categorize PDF
-            </button>
+              <Typography variant="button">Upload and Categorize</Typography>
+            </LoadingButton>
           </div>
 
           {/* Annotator Component */}
@@ -336,33 +413,79 @@ const App = () => {
       )}
 
       {/* Footer Buttons */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-200 py-4 shadow-md z-20">
-        <div className="flex justify-center items-center gap-4">
-          {extractLoading ? (
-            <p className="text-lg font-medium text-gray-700">Extracting...</p>
+      {transformedData.pdf_file && selectedPagesForExtract?.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-gray-200 py-4 shadow-md z-20 px-[10%]">
+          {currentJobIdStatus ? (
+            <div key={currentJobIdStatus.jobId} style={{ marginBottom: '20px' }}>
+              <Typography variant="overline"
+                sx={{
+                  fontWeight: "600",
+                  display: "block",
+                }}>{currentJobIdStatus.fileName}</Typography>
+              <div className='flex justify-between'>
+                <Typography variant="overline"
+                  sx={{
+                    fontWeight: "600",
+                  }}>Status: {currentJobIdStatus.status}</Typography>
+                <Typography variant="overline"
+                  sx={{
+                    fontWeight: "600",
+                  }}> {currentJobIdStatus.progress}%</Typography>
+              </div>
+              <LinearProgress color="success" variant="determinate" value={currentJobIdStatus.progress} />
+              {currentJobIdStatus.status === 'completed' && (
+                <a
+                  href={currentJobIdStatus.fileUrlToDownload}
+                  download={`${currentJobIdStatus.fileName.slice(0, -4)}.xlsx`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+
+                >
+                  <LoadingButton
+                    variant="contained"
+                    startIcon={<DocumentScanner />}
+                    size="large"
+                    color='success'
+                    sx={{ mt: "30px" }}
+                  >
+                    <Typography variant="button">Download Extracted Data</Typography>
+                  </LoadingButton>
+                </a>
+              )}
+
+              <Link
+                to='/'
+              >
+                <LoadingButton
+                  variant="contained"
+                  startIcon={<DocumentScanner />}
+                  size="large"
+                  color='primary'
+                  sx={{ mt: "30px", ml: `${currentJobIdStatus.status === 'completed' ? '10px' : '0px'}` }}
+                >
+                  <Typography variant="button">Do you want to extract more?</Typography>
+                </LoadingButton>
+              </Link>
+
+            </div>
           ) : (
-            <button
-              onClick={extractDoc}
-              className="bg-green-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-green-700 transition duration-300"
+            <LoadingButton
+              variant="contained"
+              startIcon={<DocumentScanner />}
+              size="large"
+              onClick={onExtract}
+              color='primary'
+              sx={{ mt: "30px" }}
             >
-              Upload and Extract PDF
-            </button>
-          )}
-          {fileUrl && (
-            <a
-              href={fileUrl}
-              download={`${fileName.slice(0, -4)}.xlsx`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 underline hover:text-blue-800"
-            >
-              Download Extracted Data
-            </a>
+              <Typography variant="button">Extract Data</Typography>
+            </LoadingButton>
+
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 };
 
-export default App;
+// export default App;
+export default React.memo(App);

@@ -15,6 +15,15 @@ code {
     monospace;
 }
 
+.dashboard {
+  margin: 50px;
+  padding: 30px;
+  border: 1px solid #eeeeee;
+  border-radius: 5px;
+  background-color: white;
+  box-shadow: rgba(149, 157, 165, 0.2) 0px 8px 24px;
+}
+
 .pdf-extractor {
   margin: 50px;
   padding: 30px;

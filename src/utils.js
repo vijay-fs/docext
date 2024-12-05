@@ -15,5 +15,6 @@ export const ENDPOINTS = {
   CATEGORIZE: `${URL}/categorize`,
   SET_DPI: `${URL}/set_dpi`,
   SAVE_M_OBB: `${URL}/save_m_obb`,
-  EXTRACT: `${URL}/extract`
+  EXTRACT: `${URL}/v2/extract`,
+  EXTRACTJOBID: `${URL}/v2/extract/`,
 };
