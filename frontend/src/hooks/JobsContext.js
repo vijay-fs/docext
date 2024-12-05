@@ -1,5 +1,5 @@
 // JobsContext.js
-import React, { createContext, useReducer, useEffect } from 'react';
+import React, { createContext, useReducer, useEffect, useRef } from 'react';
 import { jobsReducer, initialJobsState } from './jobsReducer';
 import axios from 'axios';
 import { ENDPOINTS } from '../utils';
@@ -9,7 +9,7 @@ export const JobsContext = createContext();
 
 export const JobsProvider = ({ children }) => {
   const [state, dispatch] = useReducer(jobsReducer, initialJobsState);
-
+  const pollingIntervalsRef = useRef({});
   useEffect(() => {
     const inProgressJobs = state.jobs.filter(
       (job) => job.status === 'in_progress' && !job.isPolling
@@ -48,7 +48,7 @@ export const JobsProvider = ({ children }) => {
         },
       });
     }, 1000);
-
+    pollingIntervalsRef.current[job.jobId] = progressInterval;
     const poll = async () => {
       try {
         const { data } = await axios.get(`${ENDPOINTS.EXTRACTJOBID}${job.jobId}`);
@@ -112,8 +112,23 @@ export const JobsProvider = ({ children }) => {
     }
   };
 
+  const cancelJob = (jobId) => {
+    // Clear polling interval for the job
+    const intervalId = pollingIntervalsRef.current[jobId];
+    if (intervalId) {
+      clearInterval(intervalId);
+      delete pollingIntervalsRef.current[jobId];
+    }
+
+    // Dispatch the cancellation action
+    dispatch({
+      type: 'UPDATE_JOB',
+      payload: { jobId, status: 'cancelled', isPolling: false },
+    });
+  };
+
   return (
-    <JobsContext.Provider value={{ state, dispatch }}>
+    <JobsContext.Provider value={{ state, dispatch, cancelJob }}>
       {children}
     </JobsContext.Provider>
   );

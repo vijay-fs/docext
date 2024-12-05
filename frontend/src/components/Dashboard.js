@@ -8,13 +8,13 @@ import { Link } from 'react-router';
 import JobCard from './JobCard';
 
 const Dashboard = () => {
-    const { jobs, deleteJob } = useJobs();
+    const { jobs, deleteJob, cancelJob } = useJobs();
     console.log(jobs)
     return (
         <div className='dashboard'>
             <Typography variant="h3" color='primary' sx={{ my: "30px", fontWeight: "bold", textAlign: "center" }}>Doc Extractor</Typography>
             {jobs.length > 0 ? jobs?.map((job) => (
-                <JobCard key={job.jobId} job={job} deleteJob={deleteJob} />
+                <JobCard key={job.jobId} job={job} deleteJob={deleteJob} cancelJob={cancelJob} />
             )) :
                 <div style={{
                     display: "flex",

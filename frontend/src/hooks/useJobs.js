@@ -1,9 +1,11 @@
 // useJobs.js
 import { useContext } from 'react';
 import { JobsContext } from './JobsContext';
+import { ENDPOINTS } from '../utils';
+import axios from 'axios';
 
 export const useJobs = () => {
-  const { state, dispatch } = useContext(JobsContext);
+  const { state, dispatch, cancelJob } = useContext(JobsContext);
 
   const getJobs = () => state.jobs;
 
@@ -22,11 +24,13 @@ export const useJobs = () => {
     dispatch({ type: 'DELETE_JOB', payload: { jobId } });
   };
 
+
   return {
     jobs: state.jobs,
     getJobs,
     addJob,
     updateJob,
     deleteJob,
+    cancelJob
   };
 };

@@ -1,8 +1,8 @@
 import React from 'react';
-import { Typography, LinearProgress, Button } from '@mui/material';
-import { FileDownload, Delete } from '@mui/icons-material';
+import { Typography, LinearProgress, Button, IconButton } from '@mui/material';
+import { FileDownload, Delete, Cancel } from '@mui/icons-material';
 
-const JobCard = ({ job, deleteJob }) => {
+const JobCard = ({ job, deleteJob, cancelJob }) => {
     return (
         <div style={{ marginBottom: '20px', border: '1px solid #ccc', padding: '10px', borderRadius: '5px' }}>
             <Typography variant="overline">{job.fileName}</Typography>
@@ -10,7 +10,28 @@ const JobCard = ({ job, deleteJob }) => {
                 <Typography variant="caption">Status: {job.status}</Typography>
                 <Typography variant='caption'>{job.progress}%</Typography>
             </div>
-            <LinearProgress variant="determinate" color="success" value={job.progress} />
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                width: '100%',
+            }}>
+                <LinearProgress
+                    variant="determinate"
+                    color="success"
+                    value={job.progress}
+                    style={{ width: '100%', marginRight: `${job.status === 'in_progress' ? '10px' : '0px'}` }}
+                />
+                {job.status === 'in_progress' && (
+                    <IconButton
+                        color="error"
+                        onClick={() => cancelJob(job.jobId)}
+                        title="Cancel Job"
+                    >
+                        <Cancel />
+                    </IconButton>
+                )}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {job.status === 'completed' && (
                     <a

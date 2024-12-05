@@ -16,4 +16,5 @@ export const ENDPOINTS = {
   SAVE_M_OBB: `${URL}/save_m_obb`,
   EXTRACT: `${URL}/v2/extract`,
   EXTRACTJOBID: `${URL}/v2/extract/`,
+  CANCELJOBID: `${URL}/v2/cancel/`,
 };
