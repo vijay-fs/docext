@@ -11,21 +11,17 @@ import { Link } from 'react-router';
 const App = () => {
   // State hooks
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileName, setFileName] = useState("");
   const [selectedPages, setSelectedPages] = useState("201, 202");
   const [response, setResponse] = useState<any>(null);
   const [selectedPagesForExtract, setSelectedPagesForExtract] = useState<Set<number>>(new Set());
   const [dropdownSelections, setDropdownSelections] = useState<{ [page: number]: number }>({});
   const [loading, setLoading] = useState(false);
-  const [extractLoading, setExtractLoading] = useState(false);
-  const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const { addJob, jobs } = useJobs();
   // File input handler
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       setSelectedFile(event.target.files[0]);
-      setFileName(event.target.files[0].name);
     }
   };
 
@@ -91,50 +87,6 @@ const App = () => {
   }, [response, selectedFile, dropdownSelections]);
 
   // Extract PDF data
-  const extractDoc = async () => {
-    setLoading(true);
-    setExtractLoading(true);
-
-    if (!selectedFile) {
-      alert("Please select a PDF file first.");
-      setExtractLoading(false);
-      setLoading(false);
-      return;
-    }
-
-    const form2 = new FormData();
-    form2.append('pdf_file', selectedFile);
-    form2.append(
-      'data',
-      JSON.stringify(
-        transformedData.data.filter((item: any) => selectedPagesForExtract.has(item.page_num))
-      )
-    );
-    try {
-      const response = await axios.post(ENDPOINTS.EXTRACT, form2, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          'Content-Type': 'multipart/form-data',
-        },
-        responseType: 'blob',
-      });
-
-      if (response.status === 200) {
-        const fileUrl = window.URL.createObjectURL(new Blob([response.data]));
-        setFileUrl(fileUrl);
-        setExtractLoading(false);
-        setLoading(false);
-      } else {
-        setExtractLoading(false);
-        setLoading(false);
-        throw new Error("Failed to extract data from the PDF.");
-      }
-    } catch (error) {
-      setExtractLoading(false);
-      setLoading(false);
-      console.error("Error:", error);
-    }
-  };
   const onExtract = () => {
     setLoading(true);
     if (!selectedFile) {

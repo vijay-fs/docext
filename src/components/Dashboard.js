@@ -1,7 +1,7 @@
 // Dashboard.js
 import React from 'react';
-import { LinearProgress, Button, Typography } from '@mui/material';
-import { FileDownload, Delete, DocumentScanner } from '@mui/icons-material';
+import { Typography } from '@mui/material';
+import { DocumentScanner } from '@mui/icons-material';
 import { useJobs } from '../hooks/useJobs';
 import LoadingButton from '@mui/lab/LoadingButton';
 import { Link } from 'react-router';
