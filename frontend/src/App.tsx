@@ -11,7 +11,7 @@ import { Link } from 'react-router';
 const App = () => {
   // State hooks
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedPages, setSelectedPages] = useState("201, 202");
+  const [selectedPages, setSelectedPages] = useState('');
   const [response, setResponse] = useState<any>(null);
   const [selectedPagesForExtract, setSelectedPagesForExtract] = useState<Set<number>>(new Set());
   const [dropdownSelections, setDropdownSelections] = useState<{ [page: number]: number }>({});
@@ -278,7 +278,7 @@ const App = () => {
               type="text"
               value={selectedPages}
               onChange={(e) => setSelectedPages(e.target.value)}
-              placeholder="Enter pages (e.g., 1,2,3)"
+              placeholder="Enter pages (e.g., 1,2,3 or 1-5)"
               className="border border-gray-300 rounded-md p-2 bg-white shadow-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500"
             />
 
