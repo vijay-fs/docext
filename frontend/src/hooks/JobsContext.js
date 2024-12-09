@@ -4,17 +4,16 @@ import { jobsReducer, initialJobsState } from './jobsReducer';
 import axios from 'axios';
 import { ENDPOINTS } from '../utils';
 
-
 export const JobsContext = createContext();
 
 export const JobsProvider = ({ children }) => {
   const [state, dispatch] = useReducer(jobsReducer, initialJobsState);
-  const pollingIntervalsRef = useRef({});
+  const pollingTimeoutsRef = useRef({});
+
   useEffect(() => {
     const inProgressJobs = state.jobs.filter(
-      (job) => job.status === 'in_progress' && !job.isPolling
+      (job) => job.status === 'pending' && !job.isPolling
     );
-
     inProgressJobs.forEach((job) => {
       pollForProgress(job);
     });
@@ -27,103 +26,93 @@ export const JobsProvider = ({ children }) => {
     });
 
     const expTime = job.expTime; // in seconds
-    const startTime = job.startTime;
-    const totalDuration = expTime * 1000; // Convert to milliseconds
-
-    // Decide how often to poll the server
     const pollingIntervals = calculatePollingIntervals(expTime);
-
     let pollIndex = 0;
 
-    // Start updating progress every second
-    const progressInterval = setInterval(() => {
-      const elapsedTime = Date.now() - startTime;
-      const progress = Math.min(Math.floor((elapsedTime / totalDuration) * 100), 99);
-      console.log(progress, "progress", job)
-      dispatch({
-        type: 'UPDATE_JOB',
-        payload: {
-          jobId: job.jobId,
-          progress,
-        },
-      });
-    }, 1000);
-    pollingIntervalsRef.current[job.jobId] = progressInterval;
     const poll = async () => {
       try {
         const { data } = await axios.get(`${ENDPOINTS.EXTRACTJOBID}${job.jobId}`);
-        console.log(data);
-
+        console.log(data, "polling");
         if (data.success) {
-          if (data.status === 'ended') {
+          if (data.status === 'completed') {
             // Job completed
             const blob = base64ToBlob(
               data.file_data,
               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             );
             const downloadUrl = URL.createObjectURL(blob);
+            console.log(data, "completed");
 
             dispatch({
               type: 'UPDATE_JOB',
               payload: {
                 jobId: job.jobId,
-                status: 'completed',
+                status: data.status,
+                message: data.message,
                 progress: 100,
                 fileUrlToDownload: downloadUrl,
                 isPolling: false,
               },
             });
-
-            clearInterval(progressInterval); // Stop progress updates
           } else {
-            // Continue polling at next interval
+            // Job still in progress; update progress from backend
+            dispatch({
+              type: 'UPDATE_JOB',
+              payload: {
+                jobId: job.jobId,
+                progress: data.progress,
+                message: data.message
+              },
+            });
+
+            // Schedule the next poll
             if (pollIndex < pollingIntervals.length) {
-              setTimeout(poll, pollingIntervals[pollIndex]);
+              pollingTimeoutsRef.current[job.jobId] = setTimeout(poll, pollingIntervals[pollIndex]);
               pollIndex += 1;
             } else {
-              // If polling intervals are exhausted, poll every 15 seconds
-              setTimeout(poll, 15000);
+              // After exhausting intervals, poll every 15 seconds
+              pollingTimeoutsRef.current[job.jobId] = setTimeout(poll, 15000);
             }
           }
         } else {
           // Job failed
           dispatch({
             type: 'UPDATE_JOB',
-            payload: { jobId: job.jobId, status: 'failed', isPolling: false },
+            payload: {
+              jobId: job.jobId,
+              status: 'failed',
+              message: data.message,
+              isPolling: false
+            },
           });
-          clearInterval(progressInterval); // Stop progress updates
         }
       } catch (error) {
         dispatch({
           type: 'UPDATE_JOB',
-          payload: { jobId: job.jobId, status: 'failed', isPolling: false },
+          payload: {
+            jobId: job.jobId,
+            status: 'failed',
+            message: error.message,
+            isPolling: false
+          },
         });
-        clearInterval(progressInterval); // Stop progress updates
       }
     };
 
-    // Start the first poll
-    if (pollingIntervals.length > 0) {
-      setTimeout(poll, pollingIntervals[pollIndex]);
-      pollIndex += 1;
-    } else {
-      // If expTime is very short, poll immediately
-      poll();
-    }
+    // Instead of waiting for the first interval, poll immediately to avoid delay
+    poll();
   };
 
   const cancelJob = (jobId) => {
-    // Clear polling interval for the job
-    const intervalId = pollingIntervalsRef.current[jobId];
-    if (intervalId) {
-      clearInterval(intervalId);
-      delete pollingIntervalsRef.current[jobId];
+    const timeoutId = pollingTimeoutsRef.current[jobId];
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      delete pollingTimeoutsRef.current[jobId];
     }
 
-    // Dispatch the cancellation action
     dispatch({
       type: 'UPDATE_JOB',
-      payload: { jobId, status: 'cancelled', isPolling: false },
+      payload: { jobId, status: 'cancelled', message: 'Job cancelled', isPolling: false },
     });
   };
 
@@ -134,7 +123,6 @@ export const JobsProvider = ({ children }) => {
   );
 };
 
-// Helper function to calculate polling intervals
 const calculatePollingIntervals = (expTime) => {
   const expTimeMs = expTime * 1000;
   const intervals = [];

@@ -106,16 +106,16 @@ const App = () => {
       .post(ENDPOINTS.EXTRACT,
         formData)
       .then((response) => {
-        const serverJobId = response.data.claude_job_id;
-        const expTime = response.data.time_est; // in seconds
-        console.log(response.data, "serverJobId");
+        const serverJobId = response.data.job_id;
+        const expTime = response.data.eta; // in seconds
         if (serverJobId) {
           setCurrentJobId(serverJobId);
 
           addJob({
             jobId: serverJobId,
             fileName: selectedFile.name,
-            status: 'in_progress',
+            status: response.data.status,
+            message: response.data.message,
             expTime, // Include expTime
             startTime: Date.now(), // Record the start time
             progress: 0,
@@ -373,7 +373,7 @@ const App = () => {
                 sx={{
                   fontWeight: "600",
                   display: "block",
-                }}>{currentJobIdStatus.fileName}</Typography>
+                }}>{currentJobIdStatus.message}</Typography>
               <div className='flex justify-between'>
                 <Typography variant="overline"
                   sx={{
@@ -427,7 +427,6 @@ const App = () => {
               size="large"
               onClick={onExtract}
               color='primary'
-              sx={{ mt: "30px" }}
             >
               <Typography variant="button">Extract Data</Typography>
             </LoadingButton>

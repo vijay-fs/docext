@@ -3,11 +3,12 @@ import { Typography, LinearProgress, Button, IconButton } from '@mui/material';
 import { FileDownload, Delete, Cancel } from '@mui/icons-material';
 
 const JobCard = ({ job, deleteJob, cancelJob }) => {
+    console.log(job)
     return (
         <div style={{ marginBottom: '20px', border: '1px solid #ccc', padding: '10px', borderRadius: '5px' }}>
             <Typography variant="overline">{job.fileName}</Typography>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="caption">Status: {job.status}</Typography>
+                <Typography variant="caption">Status: {job.message}</Typography>
                 <Typography variant='caption'>{job.progress}%</Typography>
             </div>
             <div style={{
@@ -20,9 +21,9 @@ const JobCard = ({ job, deleteJob, cancelJob }) => {
                     variant="determinate"
                     color="success"
                     value={job.progress}
-                    style={{ width: '100%', marginRight: `${job.status === 'in_progress' ? '10px' : '0px'}` }}
+                    style={{ width: '100%', marginRight: `${job.status === 'pending' ? '10px' : '0px'}` }}
                 />
-                {job.status === 'in_progress' && (
+                {job.status === 'pending' && (
                     <IconButton
                         color="error"
                         onClick={() => cancelJob(job.jobId)}
