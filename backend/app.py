@@ -41,7 +41,7 @@ scope = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-creds = Credentials.from_service_account_file("gsheet-logging-882a049ab3f9.json", scopes=scope)
+creds = Credentials.from_service_account_file("gsheetlog-448810-ec6df9a271e8.json", scopes=scope)
 client = gspread.authorize(creds)
 
 id = '1lbBg7m9xUKPgs7QlgSeUaovPCrGnDuAiPAnrq51q-mQ'
