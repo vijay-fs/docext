@@ -4,14 +4,14 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - 3000:3000
+      - 3002:3000
     env_file:
       - ./frontend/.env
 
   backend:
     build: ./backend
     ports:
-      - 3001:3001
+      - 3003:3001
     env_file:
       - ./backend/.env
     volumes:
@@ -24,7 +24,7 @@ services:
     volumes:
       - mongo-data:/data/db
     ports:
-      - 27017:27017
+      - 27018:27017
 
 volumes:
   data_json_volume:
