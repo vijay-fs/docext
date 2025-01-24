@@ -1,4 +1,3 @@
-import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
@@ -6,6 +5,8 @@ import reportWebVitals from './reportWebVitals';
 import Dashboard from './components/Dashboard';
 import { JobsProvider } from './hooks/JobsContext';
 import { BrowserRouter, Route, Routes } from 'react-router';
+import LoginPage from './pages/loginPage';
+import PrivateRoute from './hooks/privateRoute';
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -15,8 +16,23 @@ root.render(
   <JobsProvider>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/extract" element={<App />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/"
+          element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/extract"
+          element={
+            <PrivateRoute>
+              <App />
+            </PrivateRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   </JobsProvider>
