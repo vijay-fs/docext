@@ -41,11 +41,11 @@ scope = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-creds = Credentials.from_service_account_file("gsheetlog-448810-8f0ca2b04341.json", scopes=scope)
-client = gspread.authorize(creds)
+#creds = Credentials.from_service_account_file("gsheetlog-448810-8f0ca2b04341.json", scopes=scope)
+#client = gspread.authorize(creds)
 
-id = '1lbBg7m9xUKPgs7QlgSeUaovPCrGnDuAiPAnrq51q-mQ'
-sheet = client.open_by_key(id).worksheet("Gsheet-auto-v4")
+#id = '1lbBg7m9xUKPgs7QlgSeUaovPCrGnDuAiPAnrq51q-mQ'
+#sheet = client.open_by_key(id).worksheet("Gsheet-auto-v4")
 
 mongo_client = MongoClient(os.environ['MONGODB_URI'])
 db = mongo_client['adeos']
@@ -445,7 +445,7 @@ async def extract(
             calculate_cost(tok_in, tok_out),
             ', '.join(map(str, dpi_list))
         ]
-        sheet.append_row(new_row, value_input_option='USER_ENTERED')
+        #sheet.append_row(new_row, value_input_option='USER_ENTERED')
         # def cleanup():
         #     shutil.rmtree(temp_dir)
 
