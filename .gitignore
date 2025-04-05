@@ -24,6 +24,8 @@
 /frontend/yarn-debug.log*
 /frontend/yarn-error.log*
 
-
 backend/.env
 backend/*.png
+
+# Google Cloud credentials
+backend/gsheetextraction-451406-f3ada7e53f26.json
