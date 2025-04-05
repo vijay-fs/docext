@@ -146,7 +146,7 @@ def save_m_obb(
     pg_no: int = Form(...),
     category: str = Form(...),
 ):
-    save_file = "/app/data/obb-traindata.json"
+    save_file = "obb-traindata.json"
     new_entry = {
         "file_name": file_name,
         "pg_no": pg_no,
