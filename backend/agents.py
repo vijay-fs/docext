@@ -364,6 +364,7 @@ class TOCRPollingAgent:
                         
                         temperature=0,
                     )
+                    print(response)
                     # extra_headers={
                     #         'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
                     #     },
