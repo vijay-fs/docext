@@ -150,6 +150,16 @@ const ImageAnnotator = ({
   const [newAnnotation, setNewAnnotation] = useState(null);
   const stageRef = useRef(null);
 
+  // Helper function to compare arrays
+  const arraysEqual = (a, b) => {
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (Math.abs(a[i] - b[i]) > 0.001) return false; // Use small epsilon for float comparison
+    }
+    return true;
+  };
+
   // Handle scale factors based on image dimensions and container size
   const containerWidth = 700; // Reduced container width
   const containerHeight = 600; // Reduced container height
@@ -221,7 +231,8 @@ const ImageAnnotator = ({
 
     // Update the specific box in the marker state
     const updatedMarkers = markerStateClone.map((box) => {
-      if (box === selectedBoxId) {
+      // Use array equality for matching instead of IDs
+      if (selectedBoxId && arraysEqual(box.xyxy, selectedBoxId.xyxy)) {
         return updatedBox;
       }
       return box;
@@ -376,18 +387,7 @@ const ImageAnnotator = ({
       const newBox = {
         fillColor: "transparent",
         strokeColor: "#EF4444",
-        strokeWidth: 3,
-        strokeDasharray: "",
-        opacity: 1,
-        left: x,
-        top: y,
-        width: width,
-        height: height,
-        rotationAngle: 0,
-        visualTransformMatrix: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
-        containerTransformMatrix: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
-        typeName: "FrameMarker",
-        state: "select",
+        strokeWidth: 2,
         class_id: 1,
         xyxy: xyxy,
         xywh: xywh,
@@ -446,6 +446,46 @@ const ImageAnnotator = ({
       y: centerY - ((centerY - position.y) / scale) * newScale,
     });
   };
+
+  // Handle delete selected annotation
+  const deleteSelectedAnnotation = () => {
+    if (!selectedBoxId || !markerState) return;
+    
+    console.log("Deleting annotation:", selectedBoxId);
+    
+    // Create a deep copy of marker state
+    const markerStateClone = JSON.parse(JSON.stringify(markerState));
+    
+    // Filter out the selected box using coordinate comparison
+    const updatedMarkers = markerStateClone.filter(box => 
+      !selectedBoxId || !arraysEqual(box.xyxy, selectedBoxId.xyxy));
+    
+    console.log("Before:", markerStateClone.length, "After:", updatedMarkers.length);
+    
+    // Update state
+    setSelectedBoxId(null);
+    onMarkerChange(updatedMarkers, index);
+    
+    // Save to backend to persist changes
+    saveDraggedBoxes(updatedMarkers, index);
+  };
+
+  // Handle keydown events for keyboard shortcuts
+  const handleKeyDown = (e) => {
+    // Check if Delete key is pressed and there's a selected box
+    if ((e.key === "Delete" || e.key === "Backspace") && selectedBoxId) {
+      e.preventDefault();
+      deleteSelectedAnnotation();
+    }
+  };
+
+  // Add keyboard event listener
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedBoxId, markerState]);
 
   // Reset view when image or DPI changes
   useEffect(() => {
@@ -564,6 +604,24 @@ const ImageAnnotator = ({
           title="Create New Annotation"
         >
           <span style={{ fontSize: "18px", lineHeight: "18px" }}>+</span>
+        </button>
+        <button
+          onClick={deleteSelectedAnnotation}
+          disabled={!selectedBoxId}
+          style={{
+            padding: "8px",
+            background: selectedBoxId ? "#FEE2E2" : "#F3F4F6",
+            color: selectedBoxId ? "#EF4444" : "#9CA3AF",
+            border: "none",
+            borderRadius: "4px",
+            cursor: selectedBoxId ? "pointer" : "not-allowed",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          title="Delete Selected Annotation"
+        >
+          <span style={{ fontSize: "16px", lineHeight: "16px" }}>🗑️</span>
         </button>
         <div
           style={{ width: "1px", background: "#e5e7eb", margin: "0 4px" }}
@@ -692,7 +750,7 @@ const ImageAnnotator = ({
                 <BoxAnnotation
                   key={idx}
                   box={box}
-                  isSelected={box === selectedBoxId}
+                  isSelected={selectedBoxId && arraysEqual(box.xyxy, selectedBoxId.xyxy)}
                   onSelect={() => {
                     // Switch to select tool when clicking on an annotation
                     setTool("select");
