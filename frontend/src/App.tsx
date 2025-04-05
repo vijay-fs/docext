@@ -1,21 +1,25 @@
-import React, { useState, useMemo } from 'react';
-import axios from 'axios';
-import Annotator from './components/Annotator';
-import './App.css';
-import { ENDPOINTS } from './utils';
-import { useJobs } from './hooks/useJobs';
-import { LinearProgress, Typography } from '@mui/material';
-import { LoadingButton } from '@mui/lab';
-import { ArrowBack, DocumentScanner } from '@mui/icons-material';
-import { Link } from 'react-router';
-import LogoutButton from './components/LogoutButton';
+import React, { useState, useMemo } from "react";
+import axios from "axios";
+import Annotator from "./components/Annotator";
+import "./App.css";
+import { ENDPOINTS } from "./utils";
+import { useJobs } from "./hooks/useJobs";
+import { LinearProgress, Typography } from "@mui/material";
+import { LoadingButton } from "@mui/lab";
+import { ArrowBack, DocumentScanner } from "@mui/icons-material";
+import { Link } from "react-router";
+import LogoutButton from "./components/LogoutButton";
 const App = () => {
   // State hooks
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedPages, setSelectedPages] = useState('');
+  const [selectedPages, setSelectedPages] = useState("");
   const [response, setResponse] = useState<any>(null);
-  const [selectedPagesForExtract, setSelectedPagesForExtract] = useState<Set<number>>(new Set());
-  const [dropdownSelections, setDropdownSelections] = useState<{ [page: number]: number }>({});
+  const [selectedPagesForExtract, setSelectedPagesForExtract] = useState<
+    Set<number>
+  >(new Set());
+  const [dropdownSelections, setDropdownSelections] = useState<{
+    [page: number]: number;
+  }>({});
   const [loading, setLoading] = useState(false);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const { addJob, jobs } = useJobs();
@@ -36,14 +40,14 @@ const App = () => {
     }
 
     const form = new FormData();
-    form.append('pdf_file', selectedFile);
-    form.append('selected_pages', selectedPages);
+    form.append("pdf_file", selectedFile);
+    form.append("selected_pages", selectedPages);
 
     try {
       const response = await axios.post(ENDPOINTS.CATEGORIZE, form, {
         headers: {
           "Access-Control-Allow-Origin": "*",
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": "multipart/form-data",
         },
       });
 
@@ -62,7 +66,9 @@ const App = () => {
         setLoading(false);
       } else {
         setLoading(false);
-        throw new Error("Response status is not 200 or response data is not an array");
+        throw new Error(
+          "Response status is not 200 or response data is not an array"
+        );
       }
     } catch (error) {
       setLoading(false);
@@ -97,15 +103,17 @@ const App = () => {
     }
     const formData = new FormData();
 
-    formData.append('pdf_file', selectedFile);
+    formData.append("pdf_file", selectedFile);
     formData.append(
-      'data',
+      "data",
       JSON.stringify(
-        transformedData.data.filter((item: any) => selectedPagesForExtract.has(item.page_num))
-      ))
+        transformedData.data.filter((item: any) =>
+          selectedPagesForExtract.has(item.page_num)
+        )
+      )
+    );
     axios
-      .post(ENDPOINTS.EXTRACT,
-        formData)
+      .post(ENDPOINTS.EXTRACT, formData)
       .then((response) => {
         const serverJobId = response.data.job_id;
         const expTime = response.data.eta; // in seconds
@@ -123,7 +131,6 @@ const App = () => {
             fileUrlToDownload: null,
           });
           setLoading(false);
-
         }
         setLoading(false);
 
@@ -154,14 +161,22 @@ const App = () => {
   };
 
   // Handle DPI dropdown change
-  const handleDropdownChange = (pageNum: number, value: number) => {
-    // Update dropdown selection immediately
+  // Somewhere in your code where you handle the dropdown (or DPI change):
+  const handleDropdownChange = (pageNum: number, newDpi: number) => {
+    // Update the local dropdown state so the UI knows which DPI was chosen
     setDropdownSelections((prev) => ({
       ...prev,
-      [pageNum]: value,
+      [pageNum]: newDpi,
     }));
 
-    const dpiApi = async (pageNum: number, dpiValue: number) => {
+    // 1) Find the old DPI for this page from 'response'
+    const oldPage = response.find((item: any) => item.page_num === pageNum);
+    if (!oldPage) return; // Page not found (safety check)
+
+    const oldDpi = oldPage.dpi;
+    const scaleFactor = newDpi / oldDpi;
+    // The same dpiApi but ensures we’re sending the updated bounding boxes
+    const dpiApi = async (pageNum: number, newDpi: number) => {
       setLoading(true);
 
       if (!selectedFile) {
@@ -169,35 +184,26 @@ const App = () => {
         setLoading(false);
         return;
       }
-      const pages = transformedData.data.map((page: any) => {
-        const { page_num, bbox } = page;
-        const transformedBbox = bbox.map((box: any) => {
-          // Calculate xywh from xyxy
-          const [x1, y1, x2, y2] = box.xyxy;
-          const width = x2 - x1;
-          const height = y2 - y1;
-          const x = x1; // Assuming x1 is the left coordinate
-          const y = y1; // Assuming y1 is the top coordinate
 
-          return {
-            xyxy: box.xyxy,
-            xywh: [x, y, width, height],
-            // xywh: box.xywh,
-            // class_id: box.class_id,
-            // original_dpi: box.original_dpi
-          };
-        });
-
+      // Build the pages data from your latest scaled 'response'
+      const pages = response.map((item: any) => {
+        const { page_num } = item;
         return {
           page_num,
-          bbox: transformedBbox,
+          // Now item.bbox.bbox_data is already scaled
+          bbox: item.bbox.bbox_data.map((box: any) => ({
+            xyxy: box.xyxy,
+            xywh: box.xywh,
+            // class_id or other fields if needed
+          })),
         };
       });
 
       const form = new FormData();
       form.append("pdf_file", selectedFile);
-      form.append("dpi", dpiValue.toString());
+      form.append("dpi", newDpi.toString());
       form.append("pages", JSON.stringify(pages));
+
       try {
         const response = await axios.post(ENDPOINTS.SET_DPI, form, {
           headers: {
@@ -207,25 +213,9 @@ const App = () => {
         });
 
         if (response.status === 200) {
-          // Update the response state with the modified data
-          setResponse((prev: any) => {
-            const updatedResponse = prev.map((item: any) => {
-              if (item.page_num === pageNum) {
-                return {
-                  ...item,
-                  dpi: dpiValue, // Update DPI
-                  bbox: {
-                    ...item.bbox,
-                    bbox_data: response.data.updated_bbox_data || item.bbox.bbox_data, // Update bbox_data from API response
-                  },
-                };
-              }
-              return item; // Keep other pages unchanged
-            });
-            return updatedResponse;
-          });
-
-          console.log("DPI updated successfully");
+          console.log("DPI updated successfully in the backend");
+          // If the backend returns updated BBOX data, you may want
+          // to merge them back if necessary
         } else {
           throw new Error("Failed to update DPI.");
         }
@@ -236,11 +226,60 @@ const App = () => {
       }
     };
 
-    // Trigger DPI API call for the selected page
-    dpiApi(pageNum, value);
+    // 2) Scale the bounding boxes in your front end state
+    //    so you pass *already scaled* bounding boxes to the backend
+    const updatedResponse = response.map((item: any) => {
+      // Only scale the page that changed DPI
+      if (item.page_num !== pageNum) return item;
+
+      // Scale every bbox coordinate by scaleFactor
+      const scaledBboxData = item.bbox.bbox_data.map((box: any) => {
+        const [x1, y1, x2, y2] = box.xyxy;
+        const newX1 = x1 * scaleFactor;
+        const newY1 = y1 * scaleFactor;
+        const newX2 = x2 * scaleFactor;
+        const newY2 = y2 * scaleFactor;
+
+        // Construct the new xyxy
+        const newXyxy = [newX1, newY1, newX2, newY2];
+
+        // Also, if you need xywh, compute them here:
+        const width = newX2 - newX1;
+        const height = newY2 - newY1;
+        const newXywh = [newX1, newY1, width, height];
+
+        return {
+          ...box,
+          xyxy: newXyxy,
+          xywh: newXywh, // optional if you need xywh
+        };
+      });
+
+      // Scale the image width and height as well
+      const newWidth = item.bbox.width * scaleFactor;
+      const newHeight = item.bbox.height * scaleFactor;
+
+      return {
+        ...item,
+        dpi: newDpi, // Let your front end know it's now at 300
+        bbox: {
+          ...item.bbox,
+          width: newWidth,
+          height: newHeight,
+          bbox_data: scaledBboxData,
+        },
+      };
+    });
+
+    // Update state with the newly scaled bounding boxes
+    setResponse(updatedResponse);
+
+    // 3) Now that 'response' is scaled for the new DPI, call your dpiApi
+    //    with the *already scaled* bounding boxes
+    dpiApi(pageNum, newDpi);
   };
 
-  console.log(jobs, "jobs")
+  console.log(jobs, "jobs");
   // Render the component
   const currentJobIdStatus = useMemo(() => {
     if (currentJobId && jobs && jobs.length > 0) {
@@ -253,27 +292,33 @@ const App = () => {
       <LogoutButton />
       <div className="App bg-gray-100 min-h-screen flex flex-col relative">
         <Link to="/">
-
           <LoadingButton
             variant="contained"
             startIcon={<ArrowBack />}
             size="large"
-            color='primary'
-            sx={{ mt: "30px", position: 'absolute', top: 0, right: "30px" }}
+            color="primary"
+            sx={{ mt: "30px", position: "absolute", top: 0, right: "30px" }}
           >
-
             <Typography variant="button">Go back</Typography>
           </LoadingButton>
         </Link>
 
         {/* Header */}
-        <Typography variant="h3" color='primary' sx={{ my: "30px", fontWeight: "bold" }}>Doc Extractor</Typography>
+        <Typography
+          variant="h3"
+          color="primary"
+          sx={{ my: "30px", fontWeight: "bold" }}
+        >
+          Doc Extractor
+        </Typography>
 
         {/* Main Content */}
-        {loading ? (<div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-          {/* Spinner */}
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500"></div>
-        </div>) : (
+        {loading ? (
+          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+            {/* Spinner */}
+            <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500"></div>
+          </div>
+        ) : (
           <div className="flex-1 flex flex-col items-center gap-6 px-4 mb-[100px]">
             {/* File Input Section */}
             <div className="flex flex-col justify-center items-center gap-6">
@@ -296,7 +341,7 @@ const App = () => {
                 startIcon={<DocumentScanner />}
                 size="large"
                 onClick={categorize}
-                color='primary'
+                color="primary"
                 sx={{ mt: "30px" }}
               >
                 <Typography variant="button">Upload and Categorize</Typography>
@@ -325,18 +370,28 @@ const App = () => {
                           onChange={() => togglePageSelection(result.page_num)}
                           className="w-5 h-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
-                        <label htmlFor={`page-${result.page_num}`} className="text-gray-700">
+                        <label
+                          htmlFor={`page-${result.page_num}`}
+                          className="text-gray-700"
+                        >
                           Select for extraction
                         </label>
                       </div>
                       <div className="flex items-center gap-2">
-                        <label htmlFor={`dpi-${result.page_num}`} className="text-gray-700">
-                          Set  DPI:
+                        <label
+                          htmlFor={`dpi-${result.page_num}`}
+                          className="text-gray-700"
+                        >
+                          Set DPI:
                         </label>
                         <select
-
-                          value={dropdownSelections[result.page_num] || ''}
-                          onChange={(e) => handleDropdownChange(result.page_num, parseInt(e.target.value))}
+                          value={dropdownSelections[result.page_num] || ""}
+                          onChange={(e) =>
+                            handleDropdownChange(
+                              result.page_num,
+                              parseInt(e.target.value)
+                            )
+                          }
                           className="border border-gray-300 rounded-md p-2 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500"
                         >
                           <option value="" disabled>
@@ -346,7 +401,6 @@ const App = () => {
                           <option value="300">300</option>
                         </select>
                       </div>
-
                     </div>
 
                     {/* Annotator component for this page */}
@@ -377,57 +431,87 @@ const App = () => {
         {transformedData.pdf_file && selectedPagesForExtract?.size > 0 && (
           <div className="fixed bottom-0 left-0 right-0 bg-gray-200 py-4 shadow-md z-20 px-[10%]">
             {currentJobIdStatus ? (
-              <div key={currentJobIdStatus.jobId} style={{ marginBottom: '20px' }}>
-                <Typography variant="overline"
+              <div
+                key={currentJobIdStatus.jobId}
+                style={{ marginBottom: "20px" }}
+              >
+                <Typography
+                  variant="overline"
                   sx={{
                     fontWeight: "600",
                     display: "block",
-                  }}>{currentJobIdStatus.message}</Typography>
-                <div className='flex justify-between'>
-                  <Typography variant="overline"
+                  }}
+                >
+                  {currentJobIdStatus.message}
+                </Typography>
+                <div className="flex justify-between">
+                  <Typography
+                    variant="overline"
                     sx={{
                       fontWeight: "600",
-                    }}>Status: {currentJobIdStatus.status}</Typography>
-                  <Typography variant="overline"
+                    }}
+                  >
+                    Status: {currentJobIdStatus.status}
+                  </Typography>
+                  <Typography
+                    variant="overline"
                     sx={{
                       fontWeight: "600",
-                    }}> {currentJobIdStatus.progress}%</Typography>
+                    }}
+                  >
+                    {" "}
+                    {currentJobIdStatus.progress}%
+                  </Typography>
                 </div>
-                <LinearProgress color="success" variant="determinate" value={currentJobIdStatus.progress} />
-                {currentJobIdStatus.status === 'completed' && (
+                <LinearProgress
+                  color="success"
+                  variant="determinate"
+                  value={currentJobIdStatus.progress}
+                />
+                {currentJobIdStatus.status === "completed" && (
                   <a
                     href={currentJobIdStatus.fileUrlToDownload}
-                    download={`${currentJobIdStatus.fileName.slice(0, -4)}.xlsx`}
+                    download={`${currentJobIdStatus.fileName.slice(
+                      0,
+                      -4
+                    )}.xlsx`}
                     target="_blank"
                     rel="noopener noreferrer"
-
                   >
                     <LoadingButton
                       variant="contained"
                       startIcon={<DocumentScanner />}
                       size="large"
-                      color='success'
+                      color="success"
                       sx={{ mt: "30px" }}
                     >
-                      <Typography variant="button">Download Extracted Data</Typography>
+                      <Typography variant="button">
+                        Download Extracted Data
+                      </Typography>
                     </LoadingButton>
                   </a>
                 )}
 
-                <Link
-                  to='/'
-                >
+                <Link to="/">
                   <LoadingButton
                     variant="contained"
                     startIcon={<DocumentScanner />}
                     size="large"
-                    color='primary'
-                    sx={{ mt: "30px", ml: `${currentJobIdStatus.status === 'completed' ? '10px' : '0px'}` }}
+                    color="primary"
+                    sx={{
+                      mt: "30px",
+                      ml: `${
+                        currentJobIdStatus.status === "completed"
+                          ? "10px"
+                          : "0px"
+                      }`,
+                    }}
                   >
-                    <Typography variant="button">Do you want to extract more?</Typography>
+                    <Typography variant="button">
+                      Do you want to extract more?
+                    </Typography>
                   </LoadingButton>
                 </Link>
-
               </div>
             ) : (
               <LoadingButton
@@ -435,17 +519,15 @@ const App = () => {
                 startIcon={<DocumentScanner />}
                 size="large"
                 onClick={onExtract}
-                color='primary'
+                color="primary"
               >
                 <Typography variant="button">Extract Data</Typography>
               </LoadingButton>
-
             )}
           </div>
         )}
       </div>
     </>
-
   );
 };
 
