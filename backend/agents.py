@@ -306,3 +306,73 @@ class BatchTOCRAgent:
             })
 
         return responses, response.processing_status, {"canceled":response.request_counts.canceled, "errored":response.request_counts.errored, "expired":response.request_counts.expired, "processing":response.request_counts.processing, "succeeded":response.request_counts.succeeded}
+class TOCRPollingAgent:
+    def __init__(self, system_prompt_updated, job_collection) -> None:
+
+        self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.collection = job_collection
+        self.system_prompt_updated = system_prompt_updated
+
+    def extract_code(self, content):
+        code_blocks = re.findall(r'<final>\n<table(.*?)</final>', content, re.DOTALL)
+        return code_blocks
+
+    
+    def calculate_cost(input_tokens, output_tokens):
+        """
+        Calculate the cost for using Claude 3.5 Sonnet based on input and output tokens.
+        
+        :param input_tokens: Number of input tokens
+        :param output_tokens: Number of output tokens
+        :return: Total cost in USD
+        """
+        # Rates per million tokens
+        INPUT_RATE = 3  # $3 per million input tokens
+        OUTPUT_RATE = 15  # $15 per million output tokens
+        
+        # Convert to millions of tokens and calculate cost
+        input_cost = (input_tokens / 1_000_000) * INPUT_RATE
+        output_cost = (output_tokens / 1_000_000) * OUTPUT_RATE
+        
+        total_cost = input_cost + output_cost
+        
+        return round(total_cost, 2)
+    
+    def create_job(self, batch, job_id):
+        responses = []
+        self.collection.update_one({"job_id": job_id}, {"$set": {"status": "in_progress"}})
+        
+        try:
+            for i in range(len(batch)):
+                if self.collection.find_one({"job_id": job_id})["status"] != "canceled":
+                    self.collection.update_one({"job_id": job_id}, {"$set": {"status": "in_progress"}})
+                    self.collection.update_one({"job_id": job_id}, {"$set": {"message": f'Extracting page number {batch[i]["pg_no"]}'}})
+                    response = self.client.messages.create(
+                        model="claude-3-7-sonnet-latest",
+                        messages=batch[i]['message'],
+                        max_tokens=16_000,
+                        system=self.system_prompt_updated,
+                        temperature=0,
+                    )
+                    # extra_headers={
+                    #         'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
+                    #     },
+                    self.collection.update_one({"job_id": job_id}, {"$set": {"progress": ((i+1)/len(batch) * 100)}})
+                    # cost = self.calculate_cost(response.usage.input_tokens,response.usage.output_tokens)
+                    responses.append({
+                        'response': response.content[0].text,
+                        'input_tokens': response.usage.input_tokens,
+                        'output_tokens': response.usage.output_tokens,
+                        # 'cost' : cost,
+                        'html_code': self.extract_code(response.content[0].text),
+                        "page_no": batch[i]["pg_no"],
+                        "table_no": i+1
+                    })
+                else:
+                    return
+        except:
+            self.collection.update_one({"job_id": job_id}, {"$set": {"status": "failed"}})
+
+        self.collection.update_one({"job_id": job_id}, {"$set": {"status": "completed"}})
+        self.collection.update_one({"job_id": job_id}, {"$set": {"message": "Job completed"}})
+        self.collection.update_one({"job_id": job_id}, {"$set": {"responses": responses}})

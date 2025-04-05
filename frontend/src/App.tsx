@@ -182,6 +182,9 @@ const App = () => {
           return {
             xyxy: box.xyxy,
             xywh: [x, y, width, height],
+            // xywh: box.xywh,
+            // class_id: box.class_id,
+            // original_dpi: box.original_dpi
           };
         });
 

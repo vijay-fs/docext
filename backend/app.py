@@ -4,7 +4,8 @@ import os
 import shutil
 import tempfile
 import time
-from fastapi import Body, FastAPI, UploadFile, File, Form, HTTPException
+import uuid
+from fastapi import Body, FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 import pandas as pd
 from pydantic import BaseModel, Field
@@ -13,7 +14,7 @@ import io
 import pdfplumber
 from PIL import Image
 import base64
-from agents import OBBModule, TOCRAgent, BatchTOCRAgent
+from agents import OBBModule, TOCRAgent, BatchTOCRAgent, TOCRPollingAgent
 from fastapi.middleware.cors import CORSMiddleware
 from io import BytesIO
 from utils import convert_htm_to_excel
@@ -41,18 +42,21 @@ scope = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-#creds = Credentials.from_service_account_file("gsheetlog-448810-8f0ca2b04341.json", scopes=scope)
-#client = gspread.authorize(creds)
+creds = Credentials.from_service_account_file("gsheetextraction-451406-f3ada7e53f26.json", scopes=scope)
+client = gspread.authorize(creds)
 
-#id = '1lbBg7m9xUKPgs7QlgSeUaovPCrGnDuAiPAnrq51q-mQ'
-#sheet = client.open_by_key(id).worksheet("Gsheet-auto-v4")
+# id = '1lbBg7m9xUKPgs7QlgSeUaovPCrGnDuAiPAnrq51q-mQ'
+id = '1-ez8Jx97F0HICmxX7yFM2oD3yVh2WwRhLKmi2F6Ibhs'
+sheet = client.open_by_key(id).worksheet("Anthropic_Loop")
+sheet_cons = client.open_by_key(id).worksheet("Cons.")
 
 mongo_client = MongoClient(os.environ['MONGODB_URI'])
 db = mongo_client['adeos']
 job_collection = db['jobs']
 
 agent = TOCRAgent(system_prompt=open("./system_prompt.txt", 'r').read())
-batch_agent = BatchTOCRAgent(system_prompt=open("./system_prompt.txt", 'r').read())
+# batch_agent = BatchTOCRAgent(system_prompt_updated=open("./system_prompt_updated.txt", 'r').read())
+polling_agent = TOCRPollingAgent(system_prompt_updated=open("./system_prompt_updated.txt", 'r').read(), job_collection=job_collection)
 obb = OBBModule('./dynamic_quantized_21.onnx')
 
 def get_pil_image(image):
@@ -697,3 +701,344 @@ async def get_extract(job_id: str):
             "status": status,
             "progress": (msg['succeeded'] / len(job['req_ids'])) * 100,
         }
+
+    # else:
+    #     shutil.rmtree(temp_dir)
+    #     return {
+    #         "success": True,
+    #         "status": status,
+    #         # "progress": progress,
+    #         "message": message
+    #     }
+    
+
+@app.post("/v3/extract")
+async def polling_extract(
+    background_tasks: BackgroundTasks,
+    pdf_file: UploadFile = File(...),
+    data: str = Form(...),
+):
+    temp_dir = tempfile.mkdtemp()
+    print("data: ", data)
+    start_time_whole_process = time.time()
+    selected_pgs = []
+    a3_pages = []
+    scanned_pages = []
+    dpi_list = []
+    a3_count = 0
+    scanned_count = 0
+
+    pdf_path = os.path.join(temp_dir, pdf_file.filename)
+    contents = await pdf_file.read()
+    with open(pdf_path, 'wb') as f:
+        f.write(contents)
+    
+    data = json.loads(data)
+    print(data)
+
+    batch_request = []
+    img_list = []
+    with pdfplumber.open(pdf_path) as pdf:
+        tbl_count = 0
+
+        for page in data:
+            pg_no = page['page_num']
+            category = page['category']
+            category = 'Scanned'
+            dpi = page['dpi']
+
+            dpi_list.append(dpi)
+            selected_pgs.append(pg_no)
+            page_index = pg_no - 1  # Adjust for zero-based indexing
+            if page_index < 0 or page_index >= len(pdf.pages):
+                raise HTTPException(status_code=400, detail=f"Page number {pg_no} out of range for the provided PDF")
+            pl_page = pdf.pages[page_index]
+            pg_image = pl_page.to_image(resolution=dpi).original
+
+            if category in ['A3', 'Scanned']:
+                if category == 'A3':
+                    a3_count += 1
+                    a3_pages.append(pg_no)
+                else:
+                    scanned_count += 1
+                    scanned_pages.append(pg_no)
+
+                excel_file = os.path.join(temp_dir, f'{os.path.splitext(pdf_file.filename)[0]}_page-{pg_no}.xlsx')
+                for tables in page['bbox']:
+                    tbl_count += 1
+                    class_id = tables['class_id']
+                    bbox = tables['xyxy']
+                    print(">>>>bbox: ", bbox)
+                    cropped_img = pg_image.crop(bbox)
+                    
+                    if class_id == 2:
+                        cropped_img = cropped_img.rotate(270, expand=True)
+                    img_buffer = io.BytesIO()
+                    cropped_img.save(f"{tbl_count}-test.png")
+                    cropped_img.save(img_buffer, format="PNG")
+                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+
+                    batch_request.append({
+                        "message": [
+                            {
+                                'role': 'user',
+                                'content': [
+                                    {
+                                        "type": "text",
+                                        "text": "Extract table accurately from this image."
+                                    },
+                                    {
+                                        "type": "image",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": "image/png",
+                                            "data": img_base64,
+                                        },
+                                    }
+                                ]
+                            }
+                        ],
+                        "file_name": pdf_file.filename,
+                        "pg_no": pg_no,
+                        "table_no": tbl_count
+                    })
+
+                    attach_image = pl_page.to_image(resolution=95).original.rotate(270, expand=True) if class_id == 2 else pl_page.to_image(resolution=95)
+
+                    img_buffer = io.BytesIO()
+                    attach_image.save(img_buffer, format="PNG")
+                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+                    img_list.append(
+                        {
+                            "page_num": pg_no,
+                            "excel_attach_image": img_base64
+                        }
+                    )
+
+    print(len(batch_request))
+
+    job_id = "msg_"+str(uuid.uuid4()).replace("-", "8")
+
+
+    job_collection.insert_one(
+        {
+            "started_at": time.time(),
+            "job_id": job_id,
+            "status": "pending",
+            "progress": 0,
+            "message": "starting up",
+            "responses": None,
+            "pdf_file": pdf_file.filename,
+            "selected_pgs": selected_pgs,
+            "a3_pages": a3_pages,
+            "scanned_pages": scanned_pages,
+            "dpi_list": dpi_list,
+            "a3_count": a3_count,
+            "scanned_count": scanned_count,
+            "table_count": tbl_count,
+            "img_list": img_list,
+        }
+    )
+
+    background_tasks.add_task(polling_agent.create_job, batch_request, job_id)
+
+    return {
+        "job_id": job_id,
+        "status": job_collection.find_one({"job_id": job_id})["status"],
+        "progress": job_collection.find_one({"job_id": job_id})["progress"],
+        "message": job_collection.find_one({"job_id": job_id})["message"],
+        "eta": 32*len(batch_request)
+    }
+
+
+@app.get("/v3/extract/{job_id}")
+async def get_polling_extract(job_id: str):
+    job = job_collection.find_one({"job_id": job_id})
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    status = job_collection.find_one({"job_id": job_id})["status"]
+    progress = job_collection.find_one({"job_id": job_id})["progress"]
+    message = job_collection.find_one({"job_id": job_id})["message"]
+    responses = job_collection.find_one({"job_id": job_id})["responses"]
+
+    temp_dir = tempfile.mkdtemp()
+    tot_input_token = 0
+    tot_output_token = 0
+    if status == 'completed' and responses:
+        excel_files_info = []
+        
+        for page in job['selected_pgs']:
+            excel_file = os.path.join(temp_dir, f'{os.path.splitext(job["pdf_file"])[0]}_page-{page}.xlsx')
+            with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+                start_row = 0
+                tbl_count = 0
+                
+                tables = []
+                for response in responses:
+                    if response['page_no'] == page:
+                        tables.append(response)
+                        tot_input_token+=response['input_tokens']
+                        tot_output_token+= response['output_tokens']
+   
+                for table in tables:
+                    for gen_table in table['html_code']:
+                        gen_table = "<table" + gen_table
+                        tbl_count += 1
+
+                        html_file = os.path.join(temp_dir, f'file-{job["pdf_file"][:-4]}-page-{page}-table-{tbl_count}.html')
+                        with open(html_file, 'w', encoding='utf-8') as file:
+                            file.write(gen_table)
+
+                        excel_file_per_table = os.path.join(temp_dir, f'file-{job["pdf_file"][:-4]}-page-{page}-table-{tbl_count}.xlsx')
+                        convert_htm_to_excel(html_file, excel_file_per_table)
+
+                        with pd.ExcelFile(excel_file_per_table) as xls:
+                            table_df = pd.read_excel(xls)
+
+                        if isinstance(table_df.columns, pd.MultiIndex):
+                            table_df.columns = [' '.join(col).strip() for col in table_df.columns.values]
+
+                        table_df.columns = ['' if isinstance(col, str) and 'Unnamed' in col else col for col in table_df.columns]
+
+
+                        table_df.to_excel(writer, index=False, header=True, startrow=start_row, sheet_name='Page Tables')
+                                
+                        start_row += len(table_df) + 3
+
+                        to_attach = job['img_list'][0]['excel_attach_image']
+
+                        for i in job['img_list']:
+                            if i['page_num'] == page:
+                                to_attach = i['excel_attach_image']
+                        
+                        def convert_base64_to_image(base64_string):
+                            img_buffer = io.BytesIO(base64.b64decode(base64_string))
+                            img = Image.open(img_buffer)
+                            return img
+                        
+                        excel_files_info.append({
+                            'excel_file': excel_file,
+                            'page_num': page,
+                            'table_num': tbl_count,
+                            'image': convert_base64_to_image(to_attach)
+                        })
+
+        if excel_files_info:
+            combined_excel_path = os.path.join(temp_dir, f'{job["pdf_file"][:-4]}_combined.xlsx')
+            img_added_pg_no = []
+            with pd.ExcelWriter(combined_excel_path, engine='openpyxl') as writer:
+                for file_info in excel_files_info:
+                    with pd.ExcelFile(file_info['excel_file']) as xls:
+                        df = pd.read_excel(xls)
+                    ##########################
+                    table_df.columns = ['' if isinstance(col, str) and 'Unnamed' in col else col for col in table_df.columns]
+    
+                    sheet_name = f'Page_{file_info["page_num"]}'
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+        
+                    if file_info['page_num'] not in img_added_pg_no:
+                        img_added_pg_no.append(file_info['page_num'])
+                        workbook = writer.book
+                        worksheet = workbook[sheet_name]
+        
+                        img_buffer = io.BytesIO()
+                        file_info['image'].save(img_buffer, format="PNG")
+                        img_buffer.seek(0)
+                        img_for_excel = ExcelImage(img_buffer)
+            
+                        worksheet.add_image(img_for_excel, "R1")
+
+            with open(combined_excel_path, 'rb') as file:
+                file_data = file.read()
+                encoded_file = base64.b64encode(file_data).decode('utf-8')
+            print("==============>")
+            print(job)
+            print("==============>")
+            print(tot_input_token)
+            print(tot_output_token)
+            print("======>")
+            new_row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            job['pdf_file'],
+            ','.join([str(pg) for pg in job['selected_pgs']]),
+            str(len(job['selected_pgs'])),
+            ','.join([str(job['table_count'])]),
+            # job['a3_count'],
+            # ','.join(job['a3_pages']),
+            job['scanned_count'],
+            ','.join(map(str, job['scanned_pages'])),
+            # str(time.time() - job['started_at']),
+            str((time.time() - job['started_at']) / 60),
+            tot_input_token,
+            tot_output_token,
+            calculate_cost(tot_input_token, tot_output_token),
+            ','.join(map(str, job['dpi_list']))
+            ]
+            sheet.append_row(new_row, value_input_option='USER_ENTERED')
+            
+            
+            cons_new_row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            job['pdf_file'],
+            "ADEOS-Loop",
+            ','.join([str(pg) for pg in job['selected_pgs']]),
+            str(len(job['selected_pgs'])),
+            0,
+            0,
+            str(job['table_count']),
+            job['a3_count'],
+            # ','.join(map(str, job['a3_pages'])),
+            0,
+            0,
+            0,
+            ','.join(map(str, job['scanned_pages'])),
+            job['scanned_count'],
+            0,
+            0,
+            0,
+            0,
+            0,
+            # str(time.time() - job['started_at']),
+            str((time.time() - job['started_at']) / 60),
+            tot_input_token,
+            tot_output_token,
+            calculate_cost(tot_input_token, tot_output_token),
+            ','.join(map(str, job['dpi_list']))
+            ]
+            sheet_cons.append_row(cons_new_row,value_input_option='USER_ENTERED')
+            
+            response_content = {
+                "success": True,
+                "status": status,
+                'message': message,
+                'filename': f'{job["pdf_file"][:-4]}.xlsx',
+                'file_data': encoded_file
+            }
+            return response_content
+
+            # return FileResponse(
+            #     path=combined_excel_path,
+            #     filename=f'{job["pdf_file"][:-4]}_combined.xlsx',
+            #     media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            #     # background=BackgroundTask(cleanup)
+            # )
+        
+    else:
+        shutil.rmtree(temp_dir)
+        return {
+            "success": True,
+            "status": status,
+            "progress": progress,
+            "message": message
+        }
+    
+
+@app.get("/v3/cancel/{job_id}")
+async def cancel_job(job_id: str):
+    job_collection.update_one({"job_id": job_id}, {"$set": {"status": "canceled"}})
+    return {
+        "success": True,
+        "status": "canceled",
+        "message": "Job canceled successfully"
+    }
