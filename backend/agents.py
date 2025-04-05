@@ -169,11 +169,11 @@ class OBBModule:
         return obb_data
 
 class TOCRAgent:
-    def __init__(self, system_prompt) -> None:
+    def __init__(self, system_prompt_updated) -> None:
 
         self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-        self.system_prompt = system_prompt
+        self.system_prompt_updated = system_prompt_updated
 
     def extract_code(self, content):
         code_blocks = re.findall(r'<final>\n<table(.*?)</final>', content, re.DOTALL)
@@ -202,16 +202,15 @@ class TOCRAgent:
         )
     
         response = self.client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-7-sonnet-latest",
             messages=msg,
-            max_tokens=8192,
-            system=self.system_prompt,
-            extra_headers={
-                'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
-            },
+            max_tokens=16_000,
+            system=self.system_prompt_updated,
             temperature=0,
         )
-
+        # extra_headers={
+            #     'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
+            # },
         extracted_data = {
             "time": [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
             "file_name": [file_name],
@@ -219,7 +218,7 @@ class TOCRAgent:
             "image": [base64_image],
             "response": [response.content[0].text]
         }
-        data_file_path = "/app/data/data.json"
+        data_file_path = "data.json"
         if os.path.exists(data_file_path):
             with open(data_file_path, "r") as json_file:
                 existing_data = json.load(json_file)
@@ -238,11 +237,11 @@ class TOCRAgent:
         return self.extract_code(response.content[0].text), response.usage
 
 class BatchTOCRAgent:
-    def __init__(self, system_prompt) -> None:
+    def __init__(self, system_prompt_updated) -> None:
 
         self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-        self.system_prompt = system_prompt
+        self.system_prompt_updated = system_prompt_updated
 
     def extract_code(self, content):
         code_blocks = re.findall(r'<final>\n<table(.*?)</final>', content, re.DOTALL)
@@ -257,11 +256,11 @@ class BatchTOCRAgent:
                 Request(
                     custom_id=f"table-{i}-page-{batch[i]['pg_no']}",
                     params=MessageCreateParamsNonStreaming(
-                        model="claude-3-5-sonnet-20241022",
-                        max_tokens=8192,
+                        model="claude-3-7-sonnet-latest",
+                        max_tokens=16_000,
                         messages=batch[i]['message'],
-                        system=self.system_prompt,
-                        temperature=0,
+                        system=self.system_prompt_updated,
+                        temperature=0
                         # extra_headers={
                         #     'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
                         # },
@@ -306,6 +305,16 @@ class BatchTOCRAgent:
             })
 
         return responses, response.processing_status, {"canceled":response.request_counts.canceled, "errored":response.request_counts.errored, "expired":response.request_counts.expired, "processing":response.request_counts.processing, "succeeded":response.request_counts.succeeded}
+
+    def cancel_job(self, id):
+        try:
+            return {"success": True, "message": self.client.beta.messages.batches.cancel(id,).processing_status}
+        except anthropic.NotFoundError:
+            return {"success": False, "message": "Job not found"}
+        
+        except anthropic.BadRequestError:
+            return {"success": False, "message": "Job not found"}
+
 class TOCRPollingAgent:
     def __init__(self, system_prompt_updated, job_collection) -> None:
 
@@ -338,7 +347,7 @@ class TOCRPollingAgent:
         
         return round(total_cost, 2)
     
-    def create_job(self, batch, job_id):
+    def create_job(self, batch: list, job_id):
         responses = []
         self.collection.update_one({"job_id": job_id}, {"$set": {"status": "in_progress"}})
         
@@ -352,6 +361,7 @@ class TOCRPollingAgent:
                         messages=batch[i]['message'],
                         max_tokens=16_000,
                         system=self.system_prompt_updated,
+                        
                         temperature=0,
                     )
                     # extra_headers={
@@ -368,6 +378,7 @@ class TOCRPollingAgent:
                         "page_no": batch[i]["pg_no"],
                         "table_no": i+1
                     })
+                    print(response.content[0].text)
                 else:
                     return
         except:

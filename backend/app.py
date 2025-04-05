@@ -31,7 +31,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,8 +54,8 @@ mongo_client = MongoClient(os.environ['MONGODB_URI'])
 db = mongo_client['adeos']
 job_collection = db['jobs']
 
-agent = TOCRAgent(system_prompt=open("./system_prompt.txt", 'r').read())
-# batch_agent = BatchTOCRAgent(system_prompt_updated=open("./system_prompt_updated.txt", 'r').read())
+agent = TOCRAgent(system_prompt_updated=open("./system_prompt_updated.txt", 'r').read())
+batch_agent = BatchTOCRAgent(system_prompt_updated=open("./system_prompt_updated.txt", 'r').read())
 polling_agent = TOCRPollingAgent(system_prompt_updated=open("./system_prompt_updated.txt", 'r').read(), job_collection=job_collection)
 obb = OBBModule('./dynamic_quantized_21.onnx')
 
@@ -296,6 +296,7 @@ async def extract(
             for page in data:
                 pg_no = page['page_num']
                 category = page['category']
+                category = 'Scanned'
                 dpi = page['dpi']
 
                 dpi_list.append(dpi)
@@ -354,7 +355,9 @@ async def extract(
         
                                 if isinstance(table_df.columns, pd.MultiIndex):
                                     table_df.columns = [' '.join(col).strip() for col in table_df.columns.values]
-        
+                                ############################
+                                table_df.columns = ['' if isinstance(col, str) and 'Unnamed' in col else col for col in table_df.columns]
+
                                 table_df.to_excel(writer, index=False, header=True, startrow=start_row, sheet_name='Page Tables')
                                         
                                 start_row += len(table_df) + 3
@@ -362,7 +365,7 @@ async def extract(
                                     'excel_file': excel_file,
                                     'page_num': pg_no,
                                     'table_num': tbl_count,
-                                    'image': pl_page.to_image(resolution=95).original.rotate(270, expand=True) if class_id == 2 else pl_page.to_image(resolution=95)
+                                    'image': pl_page.to_image(resolution=95).original.rotate(270, expand=True) if class_id == 1 else pl_page.to_image(resolution=95)
                                 })
                         
                 elif category == 'Word':
@@ -449,7 +452,7 @@ async def extract(
             calculate_cost(tok_in, tok_out),
             ', '.join(map(str, dpi_list))
         ]
-        #sheet.append_row(new_row, value_input_option='USER_ENTERED')
+        sheet.append_row(new_row, value_input_option='USER_ENTERED')
         # def cleanup():
         #     shutil.rmtree(temp_dir)
 
@@ -590,6 +593,12 @@ async def extract(
         "time_est": len(req_ids) * 26
         }
 
+
+@app.get("/v2/cancel/{job_id}")
+async def cancel_job(job_id: str):
+    return batch_agent.cancel_job(job_id)
+
+
 @app.get("/v2/extract/{job_id}")
 async def get_extract(job_id: str):
     job = job_collection.find_one({"job_id": job_id})
@@ -701,16 +710,6 @@ async def get_extract(job_id: str):
             "status": status,
             "progress": (msg['succeeded'] / len(job['req_ids'])) * 100,
         }
-
-    # else:
-    #     shutil.rmtree(temp_dir)
-    #     return {
-    #         "success": True,
-    #         "status": status,
-    #         # "progress": progress,
-    #         "message": message
-    #     }
-    
 
 @app.post("/v3/extract")
 async def polling_extract(
@@ -923,8 +922,9 @@ async def get_polling_extract(job_id: str):
                             'table_num': tbl_count,
                             'image': convert_base64_to_image(to_attach)
                         })
-
+        
         if excel_files_info:
+            print("====> THERE ARE SOME EXCELSSS")
             combined_excel_path = os.path.join(temp_dir, f'{job["pdf_file"][:-4]}_combined.xlsx')
             img_added_pg_no = []
             with pd.ExcelWriter(combined_excel_path, engine='openpyxl') as writer:
@@ -952,8 +952,15 @@ async def get_polling_extract(job_id: str):
             with open(combined_excel_path, 'rb') as file:
                 file_data = file.read()
                 encoded_file = base64.b64encode(file_data).decode('utf-8')
-            print("==============>")
-            print(job)
+            
+            print(f"file base64: {encoded_file[:10]}...")
+
+            # save the exel to local
+            with open(combined_excel_path, 'wb') as file:
+                file.write(file_data)
+            
+            print(f"Saved Excel file to {combined_excel_path}")
+            
             print("==============>")
             print(tot_input_token)
             print(tot_output_token)
